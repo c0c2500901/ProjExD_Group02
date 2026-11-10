@@ -3,7 +3,6 @@ import random
 import sys
 import math
 import pygame
-
 # ワーキングディレクトリを作業ファイルの場所に設定
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
@@ -19,6 +18,9 @@ COLOR_PLAYER = (0, 100, 255)   # 青色（プレイヤー）
 COLOR_ENEMY = (255, 50, 50)    # 赤色（敵）
 COLOR_WHITE = (255, 255, 255)  # 白色
 COLOR_RED = (200, 0, 0)        # 強調用赤
+COLOR_SHOOTER_ENEMY = (160, 32, 240) # 紫色（シューター敵）
+COLOR_DASH_ENEMY = (255, 255, 0)     # 黄色（ダッシュ敵）
+COLOR_ENEMY_BULLET = (255, 0, 128)   # ピンク色（敵の弾）
 COLOR_YELLOW = (255, 255, 0)   # ボム表示用黄色
 COLOR_HEAL = (0, 255, 0)       # 回復アイテム
 COLOR_ITEM_SCORE = (255, 255, 0)  # スコアアイテム
@@ -173,13 +175,14 @@ class Player:
 
 
 class Enemy:
-    """敵キャラクターの移動と描画を管理するクラス"""
+    """敵キャラクターの基本クラス"""
 
     def __init__(self, x: float, y: float) -> None:
         self.x: float = x
         self.y: float = y
         self.radius: int = 12
         self.speed: float = 2.2
+        self.color: tuple[int, int, int] = COLOR_ENEMY
 
     def update(self, player_x: float, player_y: float) -> None:
         """プレイヤーに向かって追従移動"""
@@ -194,6 +197,8 @@ class Enemy:
             self.y += dy * self.speed
 
     def draw(self, screen: pygame.Surface) -> None:
+        """敵を描画する"""
+        pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), self.radius)
         """敵の描画"""
         pygame.draw.circle(screen, COLOR_ENEMY, (int(self.x), int(self.y)), self.radius)
         pygame.draw.circle(screen, COLOR_WHITE, (int(self.x), int(self.y)), self.radius, 2)
@@ -202,6 +207,104 @@ class Enemy:
         return (self.x, self.y)
 
 
+class EnemyBullet:
+    """【追加機能】シューター敵が発射する弾クラス"""
+    def __init__(self, x: float, y: float, target_x: float, target_y: float) -> None:
+        self.x: float = x
+        self.y: float = y
+        self.radius: int = 5
+        self.speed: float = 5.0
+        dx: float = target_x - x
+        dy: float = target_y - y
+        dist: float = math.hypot(dx, dy)
+        if dist > 0:
+            self.vx: float = (dx / dist) * self.speed
+            self.vy: float = (dy / dist) * self.speed
+        else:
+            self.vx, self.vy = 0.0, self.speed
+
+    def update(self) -> None:
+        self.x += self.vx
+        self.y += self.vy
+
+    def draw(self, screen: pygame.Surface) -> None:
+        pygame.draw.circle(screen, COLOR_ENEMY_BULLET, (int(self.x), int(self.y)), self.radius)
+
+    def is_out_of_bounds(self) -> bool:
+        return self.x < -20 or self.x > SCREEN_WIDTH + 20 or self.y < -20 or self.y > SCREEN_HEIGHT + 20
+
+
+class ShooterEnemy(Enemy):
+    """【追加機能】シュータータイプの敵クラス（一定距離を保ち弾を撃つ）"""
+    def __init__(self, x: float, y: float) -> None:
+        super().__init__(x, y)
+        self.radius = 14
+        self.speed = 1.5
+        self.color = COLOR_SHOOTER_ENEMY
+        self.shoot_timer: int = 0
+        self.shoot_interval: int = 120  # 2秒ごとに発射
+
+    def update_and_shoot(self, player_x: float, player_y: float) -> EnemyBullet | None:
+        dx: float = player_x - self.x
+        dy: float = player_y - self.y
+        dist: float = math.hypot(dx, dy)
+
+        if dist > 200:
+            self.x += (dx / dist) * self.speed
+            self.y += (dy / dist) * self.speed
+
+        self.shoot_timer += 1
+        if self.shoot_timer >= self.shoot_interval:
+            self.shoot_timer = 0
+            return EnemyBullet(self.x, self.y, player_x, player_y)
+        return None
+
+
+class DashEnemy(Enemy):
+    """【追加機能】ダッシュタイプの敵クラス"""
+    def __init__(self, x: float, y: float) -> None:
+        super().__init__(x, y)
+        self.radius = 13
+        self.speed = 1.2
+        self.color = COLOR_DASH_ENEMY
+        self.state: str = "NORMAL"
+        self.timer: int = 0
+        self.dash_vx: float = 0.0
+        self.dash_vy: float = 0.0
+
+    def update(self, player_x: float, player_y: float) -> None:
+        dx: float = player_x - self.x
+        dy: float = player_y - self.y
+        dist: float = math.hypot(dx, dy)
+
+        if self.state == "NORMAL":
+            if dist > 0:
+                self.x += (dx / dist) * self.speed
+                self.y += (dy / dist) * self.speed
+            if dist < 220:
+                self.state = "CHARGING"
+                self.timer = 30  # 0.5秒溜め
+                if dist > 0:
+                    self.dash_vx = (dx / dist) * 9.0
+                    self.dash_vy = (dy / dist) * 9.0
+
+        elif self.state == "CHARGING":
+            self.timer -= 1
+            if self.timer <= 0:
+                self.state = "DASHING"
+                self.timer = 25
+
+        elif self.state == "DASHING":
+            self.x += self.dash_vx
+            self.y += self.dash_vy
+            self.timer -= 1
+            if self.timer <= 0:
+                self.state = "NORMAL"
+
+    def draw(self, screen: pygame.Surface) -> None:
+        draw_color = COLOR_RED if (self.state == "CHARGING" and (self.timer // 3) % 2 == 0) else self.color
+        pygame.draw.circle(screen, draw_color, (int(self.x), int(self.y)), self.radius)
+        pygame.draw.circle(screen, COLOR_WHITE, (int(self.x), int(self.y)), self.radius, 2)
 class Item:
     """アイテムの種類、位置、描画を管理するクラス"""
 
@@ -261,6 +364,14 @@ class Game:
             self.enemies.clear()
             self.bombs -= 1
 
+    def reset_game(self) -> None:
+        self.player: Player = Player(float(SCREEN_WIDTH / 2), float(SCREEN_HEIGHT / 2))
+        self.enemies: list[Enemy] = []
+        self.enemy_bullets: list[EnemyBullet] = []  # ← この行を追加
+        self.elapsed_frames: int = 0
+        self.spawn_timer: int = 0
+        self.game_state: str = "PLAYING"
+
     def run(self) -> None:
         """メインループ"""
         running: bool = True
@@ -304,9 +415,25 @@ class Game:
                     self.spawn_timer = 0
                     self.spawn_enemy()
 
+
+                # 敵の更新
                 px, py = self.player.get_pos()
                 for enemy in self.enemies:
-                    enemy.update(px, py)
+                    if isinstance(enemy, ShooterEnemy):
+
+                        # シューター敵なら弾を発射する判定
+                        bullet = enemy.update_and_shoot(px, py)
+                        if bullet:
+                            self.enemy_bullets.append(bullet)
+                    else:
+                        enemy.update(px, py)
+
+                # 敵の弾の更新
+                for bullet in self.enemy_bullets[:]:
+                    bullet.update()
+                    if bullet.is_out_of_bounds():
+                        self.enemy_bullets.remove(bullet)
+
 
                 # アイテムの取得判定
                 self.check_item_collisions()
@@ -325,6 +452,7 @@ class Game:
     def spawn_enemy(self) -> None:
         """画面端からの敵の生成"""
         side = random.randint(0, 3)
+        if side == 0:    # 上端
         if side == 0:
             x = random.randint(0, SCREEN_WIDTH)
             y = -20
@@ -334,11 +462,21 @@ class Game:
         elif side == 2:
             x = -20
             y = random.randint(0, SCREEN_HEIGHT)
+        else:            # 右端
         else:
             x = SCREEN_WIDTH + 20
             y = random.randint(0, SCREEN_HEIGHT)
 
-        self.enemies.append(Enemy(float(x), float(y)))
+        # ★ ここで x と y が設定されたあとに敵を生成する
+        rand_val = random.random()
+        if rand_val < 0.50:      # 50%の確率で通常の敵
+            new_enemy = Enemy(float(x), float(y))
+        elif rand_val < 0.80:    # 30%の確率でシューター敵
+            new_enemy = ShooterEnemy(float(x), float(y))
+        else:                    # 20%の確率でダッシュ敵
+            new_enemy = DashEnemy(float(x), float(y))
+
+        self.enemies.append(new_enemy)
 
     def spawn_item(self) -> None:
         """フィールド上にランダムなアイテムを生成する"""
@@ -375,6 +513,18 @@ class Game:
             distance = math.hypot(px - ex, py - ey)
 
             if distance < p_radius + e_radius:
+                # （ダッシュ中の敵なら大ダメージ）
+                if isinstance(enemy, DashEnemy) and enemy.state == "DASHING":
+                    self.player.take_damage(35)
+                else:
+                    self.player.take_damage(20)
+
+        # （敵の弾の当たり判定）
+        for bullet in self.enemy_bullets[:]:
+            distance = math.hypot(px - bullet.x, py - bullet.y)
+            if distance < p_radius + bullet.radius:
+                self.player.take_damage(15)  # 弾に当たると15ダメージ
+                self.enemy_bullets.remove(bullet)
                 self.player.take_damage(20)
 
     def draw(self) -> None:
@@ -384,6 +534,8 @@ class Game:
         self.player.draw(self.screen)
         for enemy in self.enemies:
             enemy.draw(self.screen)
+        for bullet in self.enemy_bullets:
+            bullet.draw(self.screen)
 
         # UI（HP、ボム残数、スコア、残り時間）の描画
         hp_text = self.font.render(f"HP: {self.player.get_hp()}/{self.player.max_hp}", True, COLOR_WHITE)
@@ -459,7 +611,6 @@ class Game:
             self.screen.blit(restart_text, (SCREEN_WIDTH // 2 - restart_text.get_width() // 2, SCREEN_HEIGHT // 2 + 20))
 
         pygame.display.flip()
-
 
 if __name__ == "__main__":
     game = Game()
