@@ -19,6 +19,7 @@ COLOR_PLAYER = (0, 100, 255)   # 青色（プレイヤー）
 COLOR_ENEMY = (255, 50, 50)    # 赤色（敵）
 COLOR_WHITE = (255, 255, 255)  # 白色
 COLOR_RED = (200, 0, 0)        # 強調用赤
+COLOR_YELLOW = (255, 255, 0)   # ボム表示用黄色
 COLOR_HEAL = (0, 255, 0)       # 回復アイテム
 COLOR_ITEM_SCORE = (255, 255, 0)  # スコアアイテム
 COLOR_STAMINA = (255, 255, 0)  # 黄色（スタミナバー用）
@@ -250,7 +251,15 @@ class Game:
         self.item_score: int = 0
         self.elapsed_frames: int = 0
         self.spawn_timer: int = 0
+        self.bombs: int = 3  # 初期所持爆弾数（3回まで使用可能）
+        self.game_state: str = "PLAYING"  # "PLAYING", "GAME_OVER", "CLEAR"
         self.game_state: str = "PLAYING"
+
+    def use_bomb(self) -> None:
+        """爆弾を発動して画面内の敵を一括排除する"""
+        if self.bombs > 0 and self.game_state == "PLAYING" and self.enemies:
+            self.enemies.clear()
+            self.bombs -= 1
 
     def run(self) -> None:
         """メインループ"""
@@ -262,6 +271,9 @@ class Game:
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         running = False
+                    elif event.key == pygame.K_SPACE:
+                        # SPACEキーで爆弾発動
+                        self.use_bomb()
                     elif event.key == pygame.K_r:
                         if self.game_state in ["GAME_OVER", "CLEAR"]:
                             self.reset_game()
@@ -282,6 +294,7 @@ class Game:
                 if survived_seconds >= TIME_LIMIT:
                     self.game_state = "CLEAR"
 
+                # 一定時間ごと（約1.5秒ごと）に敵を出現させる
 
                 # 一定時間ごと（約1.5秒ごと）に敵を出現させる
 
@@ -372,6 +385,16 @@ class Game:
         for enemy in self.enemies:
             enemy.draw(self.screen)
 
+        # UI（HP、ボム残数、スコア、残り時間）の描画
+        hp_text = self.font.render(f"HP: {self.player.get_hp()}/{self.player.max_hp}", True, COLOR_WHITE)
+        self.screen.blit(hp_text, (20, 20))
+
+        bomb_text = self.font.render(f"Bomb: {self.bombs}", True, COLOR_YELLOW)
+        self.screen.blit(bomb_text, (200, 20))
+
+        survived_seconds = self.elapsed_frames // FPS
+        score_text = self.font.render(f"Score (Time): {survived_seconds}s", True, COLOR_WHITE)
+        self.screen.blit(score_text, (380, 20))
         # アイテム描画
         for item in self.items:
             item.draw(self.screen)    
@@ -429,7 +452,7 @@ class Game:
             overlay.fill((0, 0, 0, 160))
             self.screen.blit(overlay, (0, 0))
 
-            clear_text = self.large_font.render("CLEAR!", True, (255, 255, 0))
+            clear_text = self.large_font.render("CLEAR!", True, COLOR_YELLOW)
             restart_text = self.font.render("Press R to Restart | Press ESC to Quit", True, COLOR_WHITE)
             
             self.screen.blit(clear_text, (SCREEN_WIDTH // 2 - clear_text.get_width() // 2, SCREEN_HEIGHT // 2 - 50))
