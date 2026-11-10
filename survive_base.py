@@ -353,6 +353,7 @@ class Game:
         self.item_spawn_timer: int = 0
         self.item_score: int = 0
         self.elapsed_frames: int = 0
+        self.enemy_bullets: list[EnemyBullet] = [] 
         self.spawn_timer: int = 0
         self.bombs: int = 3  # 初期所持爆弾数（3回まで使用可能）
         self.game_state: str = "PLAYING"  # "PLAYING", "GAME_OVER", "CLEAR"
@@ -364,13 +365,16 @@ class Game:
             self.enemies.clear()
             self.bombs -= 1
 
-    def reset_game(self) -> None:
-        self.player: Player = Player(float(SCREEN_WIDTH / 2), float(SCREEN_HEIGHT / 2))
-        self.enemies: list[Enemy] = []
-        self.enemy_bullets: list[EnemyBullet] = []  # ← この行を追加
-        self.elapsed_frames: int = 0
-        self.spawn_timer: int = 0
-        self.game_state: str = "PLAYING"
+    # def reset_game(self) -> None:
+    #     self.player: Player = Player(float(SCREEN_WIDTH / 2), float(SCREEN_HEIGHT / 2))
+    #     self.enemies: list[Enemy] = []
+    #     self.items: list[Item] = []
+    #     self.enemy_bullets: list[EnemyBullet] = [] 
+    #     self.elapsed_frames: int = 0
+    #     self.item_spawn_timer: int = 0
+    #     self.spawn_timer: int = 0
+    #     self.game_state: str = "PLAYING"
+        
 
     def run(self) -> None:
         """メインループ"""
@@ -453,7 +457,6 @@ class Game:
         """画面端からの敵の生成"""
         side = random.randint(0, 3)
         if side == 0:    # 上端
-        if side == 0:
             x = random.randint(0, SCREEN_WIDTH)
             y = -20
         elif side == 1:
@@ -463,7 +466,6 @@ class Game:
             x = -20
             y = random.randint(0, SCREEN_HEIGHT)
         else:            # 右端
-        else:
             x = SCREEN_WIDTH + 20
             y = random.randint(0, SCREEN_HEIGHT)
 
@@ -542,11 +544,9 @@ class Game:
         self.screen.blit(hp_text, (20, 20))
 
         bomb_text = self.font.render(f"Bomb: {self.bombs}", True, COLOR_YELLOW)
-        self.screen.blit(bomb_text, (200, 20))
+        self.screen.blit(bomb_text, (200, 55))
 
-        survived_seconds = self.elapsed_frames // FPS
-        score_text = self.font.render(f"Score (Time): {survived_seconds}s", True, COLOR_WHITE)
-        self.screen.blit(score_text, (380, 20))
+        
         # アイテム描画
         for item in self.items:
             item.draw(self.screen)    
@@ -573,7 +573,7 @@ class Game:
         else:
             shield_str = "Shield: READY (Press E)"
         shield_text = self.font.render(shield_str, True, COLOR_SHIELD)
-        self.screen.blit(shield_text, (20, 55))
+        self.screen.blit(shield_text, (20, 90))
 
 
         survived_seconds = self.elapsed_frames // FPS
