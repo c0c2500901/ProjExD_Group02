@@ -21,27 +21,45 @@ COLOR_RED = (200, 0, 0)        # 強調用赤
 COLOR_SHOOTER_ENEMY = (160, 32, 240) # 紫色（シューター敵）
 COLOR_DASH_ENEMY = (255, 255, 0)     # 黄色（ダッシュ敵）
 COLOR_ENEMY_BULLET = (255, 0, 128)   # ピンク色（敵の弾）
+COLOR_YELLOW = (255, 255, 0)   # ボム表示用黄色
+COLOR_HEAL = (0, 255, 0)       # 回復アイテム
+COLOR_ITEM_SCORE = (255, 255, 0)  # スコアアイテム
+COLOR_STAMINA = (255, 255, 0)  # 黄色（スタミナバー用）
+COLOR_SHIELD = (0, 230, 255)   # シールド用シアン
 
 
 class Player:
-    """プレイヤーキャラクターの移動、HP、描画を管理するクラス"""
-
+    """プレイヤーの移動、HP、シールド（バリア）、描画を管理するクラス"""
     def __init__(self, x: float, y: float) -> None:
-        """プレイヤーの初期位置やステータスを設定する"""
+        """初期位置とステータスの設定"""
         self.x: float = x
         self.y: float = y
         self.radius: int = 15
-        self.speed: float = 4.0
+        self.normal_speed: float = 4.0
+        self.dash_speed: float = 7.0
+        self.speed: float = self.normal_speed
+        
         self.hp: int = 100
         self.max_hp: int = 100
-        self.invincible_timer: int = 0  # 被弾後の無敵時間フレームカウンタ
+        self.invincible_timer: int = 0  # 被弾後の無敵タイマー
+
+        # Eキーで展開するシールド（無敵バリア）関連変数
+        self.shield_timer: int = 0     # シールド展開時間（フレーム）
+        self.shield_cooldown: int = 0  # クールダウン時間（フレーム）
+
+        # ダッシュ機能用のスタミナ関連変数（最大100、使用で減少し、不使用で回復）
+        self.max_stamina: float = 100.0
+        self.stamina: float = 100.0
+        self.is_dashing: bool = False
 
     def update(self, keys: pygame.key.ScancodeWrapper) -> None:
-        """キー入力を受けて移動処理を行い、画面外への逸脱を防ぐ"""
+
+        """キー入力を受けて移動処理（ダッシュ含む）を行い、画面外への逸脱を防ぐ"""
+        """移動入力とシールドタイマーの更新"""
         dx: float = 0.0
         dy: float = 0.0
 
-        # WASDキーによる入力判定
+        # WASDキー入力
         if keys[pygame.K_w]:
             dy -= 1.0
         if keys[pygame.K_s]:
@@ -51,16 +69,41 @@ class Player:
         if keys[pygame.K_d]:
             dx += 1.0
 
-        # 斜め移動時の速度が速くならないように正規化（1 / √2 ≒ 0.7071）
+        # Eキー入力でシールド発動（クールダウン中でない場合）
+        if keys[pygame.K_e] and self.shield_cooldown == 0:
+            self.shield_timer = 120      # 2秒間（120フレーム）無敵
+            self.shield_cooldown = 1800  # 再使用まで30秒間（1800フレーム）のクールダウン
+
+        # 斜め移動時の速度補正
         if dx != 0.0 and dy != 0.0:
             dx *= 0.7071
             dy *= 0.7071
 
+        # SHIFTキーが押されていて、かつ移動中かつスタミナがある場合はダッシュ
+        is_shift_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+        if is_shift_pressed and (dx != 0.0 or dy != 0.0) and self.stamina > 5.0:
+            self.speed = self.dash_speed
+            self.is_dashing = True
+            self.stamina -= 1.5  # ダッシュ中のスタミナ消費
+            if self.stamina < 0.0:
+                self.stamina = 0.0
+        else:
+            self.speed = self.normal_speed
+            self.is_dashing = False
+            # ダッシュしていない時はスタミナを回復
+            if self.stamina < self.max_stamina:
+                self.stamina += 0.8
+                if self.stamina > self.max_stamina:
+                    self.stamina = self.max_stamina
+
         # 位置の更新
+
+        # 座標の更新
+
         self.x += dx * self.speed
         self.y += dy * self.speed
 
-        # 画面外に出ないように制限
+        # 画面外逸脱防止
         if self.x - self.radius < 0:
             self.x = self.radius
         elif self.x + self.radius > SCREEN_WIDTH:
@@ -71,41 +114,70 @@ class Player:
         elif self.y + self.radius > SCREEN_HEIGHT:
             self.y = SCREEN_HEIGHT - self.radius
 
-        # 無敵タイマーのカウントダウン
+        # タイマーの減算処理
+        if self.shield_timer > 0:
+            self.shield_timer -= 1
+        if self.shield_cooldown > 0:
+            self.shield_cooldown -= 1
         if self.invincible_timer > 0:
             self.invincible_timer -= 1
 
     def draw(self, screen: pygame.Surface) -> None:
-        """プレイヤーを描画する（無敵時間中は点滅表現を行う）"""
+
+        """プレイヤーを描画する（ダッシュ中は残像・色変化、無敵中は点滅）"""
         # 無敵時間中は点滅させる（5フレームごとに表示・非表示を切り替え）
+
+        """プレイヤーとシールドの描画"""
+        # シールド展開中のエフェクト描画（水色の円枠）
+        if self.shield_timer > 0:
+            pygame.draw.circle(screen, COLOR_SHIELD, (int(self.x), int(self.y)), self.radius + 8, 3)
+
+        # 被弾無敵時間中の点滅処理
+
         if self.invincible_timer > 0 and (self.invincible_timer // 5) % 2 == 0:
             return
 
-        pygame.draw.circle(screen, COLOR_PLAYER, (int(self.x), int(self.y)), self.radius)
+        # ダッシュ中はプレイヤーの色を少し水色っぽく（または外周を強調）変化させる
+        body_color = (0, 200, 255) if self.is_dashing else COLOR_PLAYER
+
+        pygame.draw.circle(screen, body_color, (int(self.x), int(self.y)), self.radius)
         pygame.draw.circle(screen, COLOR_WHITE, (int(self.x), int(self.y)), self.radius, 2)
 
     def get_pos(self) -> tuple[float, float]:
-        """プレイヤーの現在座標を返す"""
+        """現在座標の取得"""
         return (self.x, self.y)
 
     def get_hp(self) -> int:
-        """プレイヤーの現在のHPを返す"""
+        """現在HPの取得"""
         return self.hp
 
+    def get_stamina(self) -> float:
+        """プレイヤーの現在のスタミナを返す"""
+        return self.stamina
+
     def take_damage(self, amount: int) -> None:
-        """ダメージを受け、無敵時間を付与する"""
+        """ダメージ処理（シールド展開中は無効化）"""
+        # シールド展開中はダメージを受けない
+        if self.shield_timer > 0:
+            return
+
         if self.invincible_timer == 0:
             self.hp -= amount
             if self.hp < 0:
                 self.hp = 0
-            self.invincible_timer = 60  # 1秒間（60フレーム）の無敵時間
+            self.invincible_timer = 60  # 被弾後1秒間の無敵
+
+    def heal(self, amount: int) -> None:
+        """HPを回復する（最大HPを超えない）"""
+        self.hp = min(self.max_hp, self.hp + amount)        
+
+        
 
 
 class Enemy:
     """敵キャラクターの基本クラス"""
 
     def __init__(self, x: float, y: float) -> None:
-        """敵の初期位置を設定する"""
         self.x: float = x
         self.y: float = y
         self.radius: int = 12
@@ -113,12 +185,11 @@ class Enemy:
         self.color: tuple[int, int, int] = COLOR_ENEMY
 
     def update(self, player_x: float, player_y: float) -> None:
-        """プレイヤーの方向に向かって移動する"""
+        """プレイヤーに向かって追従移動"""
         dx: float = player_x - self.x
         dy: float = player_y - self.y
         distance: float = math.hypot(dx, dy)
 
-        # プレイヤーに向かって単位ベクトルを掛けて移動
         if distance > 0:
             dx /= distance
             dy /= distance
@@ -128,10 +199,11 @@ class Enemy:
     def draw(self, screen: pygame.Surface) -> None:
         """敵を描画する"""
         pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), self.radius)
+        """敵の描画"""
+        pygame.draw.circle(screen, COLOR_ENEMY, (int(self.x), int(self.y)), self.radius)
         pygame.draw.circle(screen, COLOR_WHITE, (int(self.x), int(self.y)), self.radius, 2)
 
     def get_pos(self) -> tuple[float, float]:
-        """敵の現在座標を返す"""
         return (self.x, self.y)
 
 
@@ -233,17 +305,40 @@ class DashEnemy(Enemy):
         draw_color = COLOR_RED if (self.state == "CHARGING" and (self.timer // 3) % 2 == 0) else self.color
         pygame.draw.circle(screen, draw_color, (int(self.x), int(self.y)), self.radius)
         pygame.draw.circle(screen, COLOR_WHITE, (int(self.x), int(self.y)), self.radius, 2)
+class Item:
+    """アイテムの種類、位置、描画を管理するクラス"""
+
+    def __init__(self, x: float, y: float, item_type: str) -> None:
+        self.x: float = x
+        self.y: float = y
+        self.radius: int = 10
+        self.item_type: str = item_type
+
+    def draw(self, screen: pygame.Surface) -> None:
+        """アイテムを種類に応じた色で描画する"""
+        if self.item_type == "HEAL":
+            color = COLOR_HEAL
+        else:
+            color = COLOR_ITEM_SCORE
+
+        pygame.draw.circle(
+            screen, color,
+            (int(self.x), int(self.y)), self.radius
+        )
+
+    def get_pos(self) -> tuple[float, float]:
+        """アイテムの座標を返す"""
+        return (self.x, self.y)
 
 
 
 class Game:
-    """ゲーム全体の状態、時間、スコア、当たり判定を管理するクラス"""
+    """ゲーム全体の管理クラス"""
 
     def __init__(self) -> None:
-        """Pygameとゲーム変数を初期化する"""
         pygame.init()
         self.screen: pygame.Surface = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption("SURVIVAL ARENA")
+        pygame.display.set_caption("SURVIVAL ARENA - Dash Feature")
         self.clock: pygame.time.Clock = pygame.time.Clock()
         self.font: pygame.font.Font = pygame.font.SysFont(None, 36)
         self.large_font: pygame.font.Font = pygame.font.SysFont(None, 64)
@@ -251,12 +346,23 @@ class Game:
         self.reset_game()
 
     def reset_game(self) -> None:
-        """ゲームの状態を初期化またはリスタートする"""
+        """ゲーム状態のリセット"""
         self.player: Player = Player(float(SCREEN_WIDTH / 2), float(SCREEN_HEIGHT / 2))
         self.enemies: list[Enemy] = []
+        self.items: list[Item] = []
+        self.item_spawn_timer: int = 0
+        self.item_score: int = 0
         self.elapsed_frames: int = 0
         self.spawn_timer: int = 0
+        self.bombs: int = 3  # 初期所持爆弾数（3回まで使用可能）
         self.game_state: str = "PLAYING"  # "PLAYING", "GAME_OVER", "CLEAR"
+        self.game_state: str = "PLAYING"
+
+    def use_bomb(self) -> None:
+        """爆弾を発動して画面内の敵を一括排除する"""
+        if self.bombs > 0 and self.game_state == "PLAYING" and self.enemies:
+            self.enemies.clear()
+            self.bombs -= 1
 
     def reset_game(self) -> None:
         self.player: Player = Player(float(SCREEN_WIDTH / 2), float(SCREEN_HEIGHT / 2))
@@ -267,34 +373,43 @@ class Game:
         self.game_state: str = "PLAYING"
 
     def run(self) -> None:
-        """メインゲームループを実行する"""
+        """メインループ"""
         running: bool = True
         while running:
-            # イベント処理
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         running = False
+                    elif event.key == pygame.K_SPACE:
+                        # SPACEキーで爆弾発動
+                        self.use_bomb()
                     elif event.key == pygame.K_r:
-                        # ゲームオーバーまたはクリア時にRキーでリスタート
                         if self.game_state in ["GAME_OVER", "CLEAR"]:
                             self.reset_game()
 
             keys = pygame.key.get_pressed()
 
             if self.game_state == "PLAYING":
-                # プレイヤーの更新
                 self.player.update(keys)
 
-                # 時間経過のカウント
+                # アイテムの出現処理（約10秒ごと）
+                self.item_spawn_timer += 1
+                if self.item_spawn_timer >= 600:
+                    self.item_spawn_timer = 0
+                    self.spawn_item()
+
                 self.elapsed_frames += 1
                 survived_seconds = self.elapsed_frames // FPS
                 if survived_seconds >= TIME_LIMIT:
                     self.game_state = "CLEAR"
 
-                # 一定時間ごと（約1.5秒おごと）に敵を出現させる
+                # 一定時間ごと（約1.5秒ごと）に敵を出現させる
+
+                # 一定時間ごと（約1.5秒ごと）に敵を出現させる
+
+
                 self.spawn_timer += 1
                 if self.spawn_timer >= 90:
                     self.spawn_timer = 0
@@ -320,34 +435,35 @@ class Game:
                         self.enemy_bullets.remove(bullet)
 
 
-                # 当たり判定のチェック
+                # アイテムの取得判定
+                self.check_item_collisions()
+
                 self.check_collisions()
 
-                # HPが0になったらゲームオーバー
                 if self.player.get_hp() <= 0:
                     self.game_state = "GAME_OVER"
 
-            # 描画処理
             self.draw()
-
             self.clock.tick(FPS)
 
         pygame.quit()
         sys.exit()
 
     def spawn_enemy(self) -> None:
-        """画面の上下左右の端からランダムに敵を生成する"""
+        """画面端からの敵の生成"""
         side = random.randint(0, 3)
         if side == 0:    # 上端
+        if side == 0:
             x = random.randint(0, SCREEN_WIDTH)
             y = -20
-        elif side == 1:  # 下端
+        elif side == 1:
             x = random.randint(0, SCREEN_WIDTH)
             y = SCREEN_HEIGHT + 20
-        elif side == 2:  # 左端
+        elif side == 2:
             x = -20
             y = random.randint(0, SCREEN_HEIGHT)
         else:            # 右端
+        else:
             x = SCREEN_WIDTH + 20
             y = random.randint(0, SCREEN_HEIGHT)
 
@@ -362,8 +478,32 @@ class Game:
 
         self.enemies.append(new_enemy)
 
+    def spawn_item(self) -> None:
+        """フィールド上にランダムなアイテムを生成する"""
+        x = random.randint(30, SCREEN_WIDTH - 30)
+        y = random.randint(50, SCREEN_HEIGHT - 30)
+
+        item_type = random.choice(["HEAL", "SCORE"])
+        self.items.append(Item(float(x), float(y), item_type))
+
+    def check_item_collisions(self) -> None:
+        """プレイヤーとアイテムの接触判定・取得処理"""
+        px, py = self.player.get_pos()
+
+        for item in self.items[:]:
+            ix, iy = item.get_pos()
+            distance = math.hypot(px - ix, py - iy)
+
+            if distance < self.player.radius + item.radius:
+                if item.item_type == "HEAL":
+                    self.player.heal(30)
+                elif item.item_type == "SCORE":
+                    self.item_score += 100
+
+                self.items.remove(item)
+
     def check_collisions(self) -> None:
-        """プレイヤーとすべての敵の接触判定を行う"""
+        """当たり判定"""
         px, py = self.player.get_pos()
         p_radius = self.player.radius
 
@@ -372,7 +512,6 @@ class Game:
             e_radius = enemy.radius
             distance = math.hypot(px - ex, py - ey)
 
-            # 円同士の当たり判定
             if distance < p_radius + e_radius:
                 # （ダッシュ中の敵なら大ダメージ）
                 if isinstance(enemy, DashEnemy) and enemy.state == "DASHING":
@@ -386,32 +525,69 @@ class Game:
             if distance < p_radius + bullet.radius:
                 self.player.take_damage(15)  # 弾に当たると15ダメージ
                 self.enemy_bullets.remove(bullet)
+                self.player.take_damage(20)
 
     def draw(self) -> None:
-        """画面全体の描画を行う"""
-        # 背景描画
+        """画面描画"""
         self.screen.fill(COLOR_BG)
 
-        # キャラクター描画
         self.player.draw(self.screen)
         for enemy in self.enemies:
             enemy.draw(self.screen)
         for bullet in self.enemy_bullets:
             bullet.draw(self.screen)
 
-        # UI（HP、スコア、残り時間）の描画
+        # UI（HP、ボム残数、スコア、残り時間）の描画
         hp_text = self.font.render(f"HP: {self.player.get_hp()}/{self.player.max_hp}", True, COLOR_WHITE)
         self.screen.blit(hp_text, (20, 20))
 
+        bomb_text = self.font.render(f"Bomb: {self.bombs}", True, COLOR_YELLOW)
+        self.screen.blit(bomb_text, (200, 20))
+
         survived_seconds = self.elapsed_frames // FPS
         score_text = self.font.render(f"Score (Time): {survived_seconds}s", True, COLOR_WHITE)
+        self.screen.blit(score_text, (380, 20))
+        # アイテム描画
+        for item in self.items:
+            item.draw(self.screen)    
+
+
+        # UI（HP、スタミナ、スコア、残り時間）の描画
+        hp_text = self.font.render(f"HP: {self.player.get_hp()}/{self.player.max_hp}", True, COLOR_WHITE)
+        self.screen.blit(hp_text, (20, 20))
+
+        # スタミナ残量の簡易表示（テキスト ＋ バー）
+        stamina_val = int(self.player.get_stamina())
+        stamina_text = self.font.render(f"Stamina: {stamina_val}", True, COLOR_STAMINA)
+        self.screen.blit(stamina_text, (20, 55))
+
+        # UI描画
+        hp_text = self.font.render(f"HP: {self.player.get_hp()}/{self.player.max_hp}", True, COLOR_WHITE)
+        self.screen.blit(hp_text, (20, 20))
+
+        # シールド機能のUI表示
+        if self.player.shield_timer > 0:
+            shield_str = f"Shield: ACTIVE ({self.player.shield_timer // FPS + 1}s)"
+        elif self.player.shield_cooldown > 0:
+            shield_str = f"Shield: CD ({self.player.shield_cooldown // FPS + 1}s)"
+        else:
+            shield_str = "Shield: READY (Press E)"
+        shield_text = self.font.render(shield_str, True, COLOR_SHIELD)
+        self.screen.blit(shield_text, (20, 55))
+
+
+        survived_seconds = self.elapsed_frames // FPS
+        total_score = survived_seconds + self.item_score
+
+        score_text = self.font.render(
+            f"Score: {total_score}", True, COLOR_WHITE
+        )
         self.screen.blit(score_text, (330, 20))
 
         remaining_seconds = max(0, TIME_LIMIT - survived_seconds)
         time_text = self.font.render(f"Limit: {remaining_seconds}s", True, COLOR_WHITE)
-        self.screen.blit(time_text, (730, 20))
+        self.screen.blit(time_text, (750, 20))
 
-        # ゲーム終了時のオーバーレイとメッセージ
         if self.game_state == "GAME_OVER":
             overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 160))
@@ -428,7 +604,7 @@ class Game:
             overlay.fill((0, 0, 0, 160))
             self.screen.blit(overlay, (0, 0))
 
-            clear_text = self.large_font.render("CLEAR!", True, (255, 255, 0))
+            clear_text = self.large_font.render("CLEAR!", True, COLOR_YELLOW)
             restart_text = self.font.render("Press R to Restart | Press ESC to Quit", True, COLOR_WHITE)
             
             self.screen.blit(clear_text, (SCREEN_WIDTH // 2 - clear_text.get_width() // 2, SCREEN_HEIGHT // 2 - 50))
